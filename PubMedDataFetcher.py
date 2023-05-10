@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 import matplotlib.pyplot as plt
 
 
+
 def fetch_pubmed_abstracts2(query, retmax):
     """
     Fetches abstracts and MeSH terms for a given PubMed query and returns them as a DataFrame.
@@ -397,6 +398,54 @@ def find_maximum_flow(matrix):
 
     return max_flow_matrix
 
+def max_flow_df(max_flow_matrix):
+    """
+    This function takes the resulting max_flow_matrix and stores in a Pandas DataFrame, which nodes have paths and what 
+    the resulting max flow is.
+
+    Args:
+        max_flow_matrix (numpy.ndarray): the matrix of maximum flows between all pairs of nodes in the graph
+
+    Returns:
+        pandas.DataFrame: a DataFrame with three columns: 'source', 'sink', and 'max_flow', where each row represents 
+                           a pair of nodes with a path and the resulting maximum flow between them
+    """
+    n = max_flow_matrix.shape[0]
+    df = pd.DataFrame(columns=['source', 'sink', 'max_flow'])
+    for i in range(n):
+        for j in range(n):
+            if max_flow_matrix[i, j] != np.inf and max_flow_matrix[i, j] > 0:
+                df = df.append({'source': i, 'sink': j, 'max_flow': max_flow_matrix[i, j]}, ignore_index=True)
+    return df
+
+def find_transitive_cuts(distance_matrix):
+    n = distance_matrix.shape[0]
+    results = []
+
+    for k in range(n):
+        for i in range(n):
+            for j in range(n):
+                if np.isnan(distance_matrix[i, k]) or np.isnan(distance_matrix[k, j]):
+                    continue  # No transitive path from i to j through k
+                if np.isnan(distance_matrix[i, j]) or distance_matrix[i, j] > distance_matrix[i, k] + distance_matrix[k, j]:
+                    # Found a shorter path from i to j through k
+                    # Calculate the minimum cut for the path from i to j
+                    # using the Edmonds-Karp algorithm
+                    matrix = np.zeros((n, n))
+                    for u in range(n):
+                        for v in range(n):
+                            if not np.isnan(distance_matrix[u, v]):
+                                matrix[u, v] = distance_matrix[u, v]
+                    cut = edmonds_karp(matrix, i, j)
+                    results.append((i, j, k, cut))
+                    # Separate the nodes i and j by removing the minimum cut from the distance matrix
+                    for u in range(n):
+                        for v in range(n):
+                            if not np.isnan(distance_matrix[u, v]):
+                                distance_matrix[u, v] = max(distance_matrix[u, v] - cut, 0)
+
+    return results
+
 #--------------------------------------------------------------------------------------
 
 terms = ['beta-catenin', 'zyxin', 'p130Cas', 'PTH', 'PTHR1', 'ECM', 'BCAR1', 'Breast cancer anti-estrogen resistance protein 1',
@@ -404,7 +453,7 @@ terms = ['beta-catenin', 'zyxin', 'p130Cas', 'PTH', 'PTHR1', 'ECM', 'BCAR1', 'Br
          'atf', 'r-smad', 'SMAD2', 'SMAD3', 'SMAD1', 'SMAD5', 'SMAD8', 'Smad4', 'Nmp4', 'actin', 'alpha-actinin', 'nuclear matrix protein 4']
 
 email = 'your.email@example.com'
-retmax = 1500
+retmax = 20
 
 dfs = []
 for term in terms:
@@ -426,13 +475,15 @@ df_all['abstract'] = df_all['abstract'].str.replace('α', 'alpha')
 # Unpacking mesh terms from StringElement object
 df_all['mesh_terms'] = df_all['mesh_terms'].apply(lambda x: [str(term) for term in x])
 
+"""
+needed for big matrices
 counts = count_unique_values(df_all, 'mesh_terms')
 df_copy = df_all.copy()
 
 df_updated = remove_rows_with_highest_count(df_copy, counts)
 counts_updated = count_unique_values(df_updated, 'mesh_terms')
-
-
+"""
+df_updated = df_all
 da_matrix = create_direct_association_matrix(df_updated)
 check_negative_weights(da_matrix) # thank the lord
 is_direct_matrix_fully_connected(da_matrix) # it's not!
@@ -440,3 +491,7 @@ adj_matrix = floyd_warshall_adj_matrix(da_matrix)
 FW_graph = floyd_warshall(adj_matrix)
 #visualize_floyd_warshall(FW_graph)
 max_flow = find_maximum_flow(FW_graph)
+
+which_ones = max_flow_df(max_flow)
+
+min_cut = find_transitive_cuts(FW_graph)
